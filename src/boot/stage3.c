@@ -566,7 +566,11 @@ void patch_bootloader(void* boot_image)
     iorvbar_yeet(boot_image);
     aes_keygen(boot_image);
     // Ultra dirty hack: 16K support = Reconfig Engine
-    if(is_16k())
+    // A7/A8/A8X have no Reconfig/AOP engine at all (see recfg_soc.c's recfg_supported()),
+    // even though their CPU core can still report 16K granule support via is_16k(),
+    // which would otherwise send recfg_yoink() hunting forever for a pattern that
+    // doesn't exist in their iBoot.
+    if(is_16k() && socnum != 0x8960 && socnum != 0x7000 && socnum != 0x7001)
     {
         recfg_yoink(boot_image);
     }
