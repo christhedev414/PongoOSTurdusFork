@@ -74,6 +74,12 @@ void panic(const char* str, ...) {
         }
    }
 
-    sleep(5);
+    // Don't use sleep()/usleep() here: they write to task_current()->wait_until,
+    // and task_current() (tpidr_el1) isn't valid until _task_set_current() has
+    // run. A panic() before that point (e.g. from fuse_init(), gpio_early_init()
+    // or serial_early_init()) would otherwise crash right here via that invalid
+    // write, silently, before ever reaching wdt_reset() below.
+    uint64_t until = get_ticks() + (24ULL * 5000000ULL);
+    while(get_ticks() < until) {}
     wdt_reset();
 }

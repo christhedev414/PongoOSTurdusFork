@@ -92,10 +92,15 @@ static inline void put_serial_modifier(const char* str) {
 static dt_node_t* serial_dt_node(void)
 {
     static dt_node_t *uart = NULL;
-    if(!uart)
+    static bool looked_up = false;
+    if(!looked_up)
     {
         dt_node_t *console = dt_find(gDeviceTree, "debug-console");
-        uart = console ? dt_node_parent(console) : dt_get("uart0");
+        // Use dt_find() rather than dt_get() here: this runs before task/exception
+        // init is set up, and panic() isn't safe to reach that early either, so a
+        // missing node here must be tolerated rather than fatal.
+        uart = console ? dt_node_parent(console) : dt_find(gDeviceTree, "uart0");
+        looked_up = true;
     }
     return uart;
 }
@@ -105,7 +110,16 @@ uint64_t gUartBase;
 extern uint32_t gLogoBitmap[32];
 void serial_early_init(void) {
     disable_interrupts();
-    gUartBase = gIOBase + dt_node_u64(serial_dt_node(), "reg", 0);
+    dt_node_t *node = serial_dt_node();
+    if(!node)
+    {
+        // No debug UART in this DeviceTree. Leave gUartBase at 0: serial_putc()
+        // already no-ops on that, so we just silently lose serial output rather
+        // than crashing this early (panic() itself isn't even safe to call yet).
+        enable_interrupts();
+        return;
+    }
+    gUartBase = gIOBase + dt_node_u64(node, "reg", 0);
     orig_rUCON0  = rUCON0;
     orig_rULCON0 = rULCON0;
     orig_rUFCON0 = rUFCON0;
@@ -153,6 +167,11 @@ void serial_enable_rx(void) {
     uart_should_drop_rx = 0;
 }
 void serial_init(void) {
+    if(!gUartBase)
+    {
+        // serial_early_init() found no debug UART; nothing to bind an IRQ to.
+        return;
+    }
     struct task* irq_task = task_create_extended("uart", uart_main, TASK_IRQ_HANDLER|TASK_PREEMPT, 0);
 
     disable_interrupts();
